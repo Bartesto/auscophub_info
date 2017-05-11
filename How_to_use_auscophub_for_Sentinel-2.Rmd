@@ -1,0 +1,150 @@
+---
+title: "Downloading Sentinel-2 Data From The Australian Regional Copernicus Hub"
+author: "Bart Huntley"
+date: "8 May 2017"
+output: html_document
+---
+
+## Introduction
+The Sentinel-2 Working Group (that exists within the Regional Copernicus Data Access/Analysis Hub Initiative) have written some client side python scripts that assisst with sourcing and intuitively naming Sentinel-2 data. This document outlines a methodology for using one of their python scripts to search for data and obtain a list for downloading. It then goes on to detail how to use an R package (**auscophubRutils**) to download and archive the data.
+
+I am not sure of the environment that the Working Group has set up for python however I have found that installing **geopandas** through **Miniconda2** (a stripped down version of Anaconda) seems to work. Please be aware that I am not a python expert and this is just the way I have managed to get them up and running. There may well be an alternate, more elegant way to do this. After the demo below I will give details and links for how I set up **Miniconda2** (see Technical section) should you need to install/recreate elsewhere.
+
+## Python Stuff
+### What do I do?
+I have installed **Miniconda2** on the RS server so it should be available to all. I have also run a setup routine for the Sentinel-2 scripts and they are now located at the following path:
+```{r, eval=FALSE}
+C:\ProgramData\Miniconda2\Scripts
+```
+The only script we will interact with is one called **auscophub_searchServer.py**.
+
+### 1. Get python ready
+
+* Go to the Start screen on the RS server
+* Click on the search icon and find **Anaconda Prompt** and click to open. This behaves just like a cmd prompt
+* Change the file path (use 'cd') to the path above:
+```{r, eval=FALSE}
+cd C:\ProgramData\Miniconda2\Scripts
+```
+* You can view the help file for the python script by:
+```{r, eval=FALSE}
+python auscophub_searchServer.py --help
+```
+
+As can be seen from the help files there is a lot to be had! Basically there are 2 main ways to narrow our search. 
+
+You can enter a startdate and enddate in the format yyyymmdd.
+
+You can also search by location via bounding box or by polygon. I would suggest a polygon shape file of  an area of interest and the example below will use this method.
+
+### 2. Ready working directory and download
+* Set up a working directory and store your polygon shapefile for your area of interest here. Make sure it is in Lat/Long.
+* Set up 4 variables:
+    * --startdate yyyymmdd (default is 20141001)
+    * --enddate yyyymmdd
+    * --polygon Z:\\path\\to\\shapefile.shp
+    * --urllist Z:\\path\\to\\aoi_download_list.txt
+    
+So for example, to download a list of available Sentinel-2 tiles from 20170402 for an area of interest defined by the shape file "aoi_toolibin_LL.shp" and call it "aoi_download_list.txt" you run the following:
+```{r, eval=FALSE}
+python auscophub_searchServer.py --startdate 20170402 --polygon Z:\path\to\aoi_toolibin_LL.shp --urllist Z:\path\to\aoi_download_list.txt
+```
+This script will hit the Regional Copernicus Hub and search for available imagery per your instructions. It will take a few minutes to run depending on how big your search is. We have been warned about hitting the Hub too hard so don't query and then download the whole State at once.
+
+There are some other handy flags that can be used with this call including an exclusion list and a max cloud setting. See the help file for details.
+
+**PLEASE NOTE** Change the paths above to suit however leave the name of the text file as is. It will be easier to run the R functions as they default to this naming convention.
+
+## R Stuff
+### What do I do now?
+The following has been written to explain the usage of the functions in the **auscophubRutils** package for downloading and archiving the Sentinel-2 data. In short these functions:
+
+1. Download zipped data from the previously created text file
+1. Create a local archive for storing the Sentinel-2 data
+1. Extract the jp2 band data from the downloaded zip files and copies them to the archive
+1. Move the original zip file and stores it appropriately in the archive
+
+
+**PLEASE NOTE** The filepaths below may look confusing as they will be formatted differently to the ones above. The backslash is an escape character in R. Therefore either change them to a foward slash or double them up so they can be read as a filepath.
+
+So open up an RStudio session and...
+
+### 1. Install/Load The Package
+This package is already installed on the RS server and any future updates will be available instantly. However if you wish to use this package in another environment (laptop, desktop, etc.) it is only available through Git Hub. To install the package use the following:
+```{r, eval=FALSE}
+# Skip this if working on the RS server
+library(devtools)
+install_github("Bartesto/auscophubRutils", build_vignettes = TRUE)
+```
+Once installed load via:
+```{r, eval=FALSE}
+library(auscophubRutils)
+```
+
+### 2. Download
+The starting point for using these functions is a text file of URL paths for selected downloads as generated by using the python script **auscophub_searchServer.py**.
+
+The text file by default is named **aoi_download_list.txt** and the location of this list will be your working directory. 
+
+To get started use the *sent_down* function and provide the working directory (**wdir**). Use the following, changing the file path to suit your working directory:
+```{r, eval=FALSE}
+sent_down(wdir = "Z:/blah/working")
+```
+
+The function has default values for where you want the downloads to go (**ddir**) and for the name of the text file of download URLS (**file**). If you have good reason to change these you can, in which case use the following:
+```{r, eval=FALSE}
+sent_down(wdir = "Z:/blah/working", ddir = "Y:/sentinel/zdownloads", file = "aoi_download_list.txt")
+```
+The default locations for **ddir** and **file** are shown above but you can change them to suit your needs.
+
+The *sent_down* function will iteratively download the Sentinel-2 data described in the **aoi_download_list.txt** and by default store them in the RS Section's local archive as indicated above. Depending on internet speeds it can take approximately 7 to 15 minutes per download (each download is about 750MB)
+
+### 3. Store
+The default location for the downloads is "Y:/sentinel/zdownloads". This will be the staging area for fresh downloads before they are then archived according to tile ID and date. The data commonly used by the RS Section (individual satellite sensor bands) is nested deeply within a folder structure inside the zipped download. 
+
+The *sent_sort*  function creates some folders within the local archive (tile and date), extracts only the band data and moves this and the original zipped file to the appropriate location. To use:
+```{r, eval=FALSE}
+sent_sort()
+```
+Simple huh? There are two default values. The top directory (**topdir**) and download directory (**ddir**) are given to suit the RS Section's archive however they can be changed if needed.
+```{r, eval=FALSE}
+sent_sort(topdir = "Y:/sentinel", ddir = "Y:/sentinel/zdownloads")
+```
+This process is relatively quick (20 seconds per download). At the completion of each "sort" it will print a message to screen.
+
+## General Thoughts
+
+* This all may look complicated but it boils down to 1 line of code in the Anaconda shell and 2 function calls in R. 
+* A recent benchmark was 20 minutes overall for search/download/archive of 3 Sentinel-2 images.
+* Existing data will be overwritten if you double up. I would suggest a quick search of the archive prior to instigating a new search of the Hub.
+* The search function by date is rudimentary but inexpensive as it is just writing data URLs to a text file. I would suggest then QA'ing the list with the quick looks on the [Remote Pixel](https://remotepixel.ca/projects/satellitesearch.html) website. Cloud affected or unwanted tiles could be deleted from the text file prior to instigating the *sent_down* function. This would be a neat system and avoids having to provide exclusion lists etc.
+
+
+## Technical 
+As stated, I'm a python "noob" but I managed to get  **auscophub_searchServer.py** working. The function/script relies on other packages/toolboxes/modules which in turn have other dependencies (see, I have no idea) and the easiest way to get everyone playing nicely together was to use **Miniconda2**. This stripped version of **Anaconda** (a data science platform with a high performance distribution of Python), allows you to install curated versions of packages and their dependencies.
+
+
+### 1. Miniconda
+To install Miniconda go to <http://conda.pydata.org/miniconda.html#miniconda> and download the 64-bit (exe installer) for Python 2.7. **Don't worry, this does not require system ADMIN rights!**.
+
+Double click the downloaded exe file to install software as usual. For the RS server I installed for "all users" however you might just need "just for me". Click finish when prompted.
+
+Before proceeding go to Start Menu > All Programs > Anaconda 2 and open the Anaconda Prompt. This will be the shell where we type our command lines.
+
+
+### 2. Installing modules
+To install these, use the existing Anaconda shell and type
+```{r eval = FALSE}
+conda config --add channels conda-forge
+conda config --add channels rios
+conda install scipy
+conda install -c conda-forge geopandas
+```
+
+That's pretty much it. To check the geopandas installation (this module is critical for access to osgeo for gdal, ogr and osr) run:
+```{r, eval=FALSE}
+gdalinfo --help-general
+```
+This command will display GDAL usage instructions if it's installed properly and the Windows PATH variable is pointing correctly to its install directory. 
+
+Lastly if this isn't working and you've checked for the usual typos, missing spaces, dashes etc try <http://geoffboeing.com/2014/09/using-geopandas-windows/> for a more manual install.
